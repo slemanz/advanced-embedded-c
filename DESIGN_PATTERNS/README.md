@@ -1,19 +1,23 @@
 # Design Patterns
 
-A design pattern is a generalized solution to a commonly occuring problem.
+A design pattern is a reusable solution to a problem that appears frequently in software development. Instead of solving the same problem from scratch every time, you recognize the pattern of the situation and apply a well-known, tested solution.
 
-The basic structure:
+In embedded C, design patterns are especially valuable because they bring structure and predictability to systems that grow in complexity over time. They also improve communication: when you say "I used the Strategy pattern here", another programmer already understands the intent without reading every line of code.
 
-- Name
-- Purpose
-- Solution
-- Consequence
+## Anatomy of a Pattern
 
----
+Every pattern is documented with four elements:
 
-# List of design patterns
+- **Name**: the identifier used to communicate the pattern between programmers
+- **Purpose**: the problem it solves
+- **Solution**: how to implement it
+- **Consequence**: the trade-offs and side effects of using it
 
-1. **[ADT](adt/)**
+Understanding the *consequences* is just as important as understanding the solution. Every pattern has a cost, and applying it in the wrong place creates more problems than it solves.
+
+## Patterns
+
+1. **[ADT](adt/)** - Abstract Data Type
 2. **[Bit Fields](bit_fields/)**
 3. **[State](state/)**
 4. **[Hardware Proxy](hardware_proxy/)**
