@@ -35,9 +35,9 @@ Native compilation: compile code on a machine and run on the same machine.
 
 ## Deep Topics
 
-1. **[Build Process](build_process/)**
-2. **[Linker and Startup](linker_startup/)**
-3. **[Make Build System](the_make/)**
+1. **[Build Process](build-process/)**
+2. **[Linker and Startup](linker-startup/)**
+3. **[Make Build System](the-make/)**
 4. **[CMSIS](cmsis/)**
 5. **[Assembly](assembly/)**
 6. **[Cpp](cpp/)**

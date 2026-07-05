@@ -6,7 +6,7 @@ FLOAT=-mfloat-abi=hard
 
 BUILD_DIR= Build
 
-LINKER= -T Linkers/linker.ld
+LINKER= -T linkers/linker.ld
 MAP_FILE= -Wl,-Map=$(BUILD_DIR)/$(TARGET).map
 
 
@@ -22,7 +22,7 @@ OBJCOPY=arm-none-eabi-objcopy
 ###########################################
 #				 INCLUDES
 
-INCLUDES+= -I App/Inc/
+INCLUDES+= -I app/Inc/
 INCLUDES+= -I Drivers/Inc/ 
 
 
@@ -47,14 +47,14 @@ all: $(PREREQ) $(BUILD_DIR)/$(TARGET).elf
 $(PREREQ):
 	mkdir $(PREREQ)
 
-$(BUILD_DIR)/%.o: App/Src/%.c
-	$(CC) $(CFLAGS) $(INCLUDES) -o $(BUILD_DIR)/$(*).o App/Src/$(*).c
+$(BUILD_DIR)/%.o: app/Src/%.c
+	$(CC) $(CFLAGS) $(INCLUDES) -o $(BUILD_DIR)/$(*).o app/Src/$(*).c
 
 $(BUILD_DIR)/%.o: Drivers/Src/%.c
 	$(CC) $(CFLAGS) $(INCLUDES) -o $(BUILD_DIR)/$(*).o Drivers/Src/$(*).c
 
-$(BUILD_DIR)/%.o: Linkers/*.c
-	$(CC) $(CFLAGS) $(INCLUDES) -o $(BUILD_DIR)/$(*).o Linkers/$(*).c
+$(BUILD_DIR)/%.o: linkers/*.c
+	$(CC) $(CFLAGS) $(INCLUDES) -o $(BUILD_DIR)/$(*).o linkers/$(*).c
 
 $(BUILD_DIR)/$(TARGET).elf: $(OBJS) $(DRIVERS) $(BSP)
 	$(CC) $(LDFLAGS) -o $@ $^

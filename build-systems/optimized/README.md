@@ -3,7 +3,7 @@
 There are many ways to optimize code size beyond `-Os`, The `-Os`  should be the
 last option to reduce code size.
 
-For our simple blinky with printf retarget example: [main.c](App/Src/main.c).
+For our simple blinky with printf retarget example: [main.c](app/Src/main.c).
 
 Here are the linker and C flags:
 
@@ -77,7 +77,7 @@ Be careful: when using options like `-Wl,--gc-sections`, some sections in the
 linker script must be protected with `KEEP`, such as the vector table and other
 data arrays used by libc, like the `.init` and `.fini` sections.
 
-See the example in: [Linker with KEEP](Linkers/linker.ld)
+See the example in: [Linker with KEEP](linkers/linker.ld)
 
 Here are the linker and C flags:
 
