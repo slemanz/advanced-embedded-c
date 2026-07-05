@@ -1,7 +1,7 @@
 {
 	"folders": [
         {
-            "path": "../factory_app"
+            "path": "../factory-app"
         },
         {
             "path": "../bsp"
@@ -15,7 +15,7 @@
     ],
     "settings": {
         "C_Cpp.default.includePath": [
-            "${workspaceFolder}/../factory_app/Inc",
+            "${workspaceFolder}/../factory-app/Inc",
             "${workspaceFolder}/../bsp/Inc",
             "${workspaceFolder}/../drivers/Inc"
         ],

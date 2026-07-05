@@ -23,7 +23,7 @@ OBJCOPY=arm-none-eabi-objcopy
 ###########################################
 #				 INCLUDES
 
-INCLUDES+= -I $(ROOT_DIR)/factory_app/Inc/
+INCLUDES+= -I $(ROOT_DIR)/factory-app/Inc/
 INCLUDES+= -I $(ROOT_DIR)/drivers/Inc/ 
 INCLUDES+= -I $(ROOT_DIR)/bsp/Inc/ 
 
@@ -58,8 +58,8 @@ all: $(PREREQ) $(BUILD_DIR)/$(TARGET).elf
 $(PREREQ):
 	mkdir $(PREREQ)
 
-$(BUILD_DIR)/%.o: $(ROOT_DIR)/factory_app/Src/%.c
-	$(CC) $(CFLAGS) $(INCLUDES) -o $(BUILD_DIR)/$(*).o $(ROOT_DIR)/factory_app/Src/$(*).c
+$(BUILD_DIR)/%.o: $(ROOT_DIR)/factory-app/Src/%.c
+	$(CC) $(CFLAGS) $(INCLUDES) -o $(BUILD_DIR)/$(*).o $(ROOT_DIR)/factory-app/Src/$(*).c
 
 $(BUILD_DIR)/%.o: $(ROOT_DIR)/drivers/Src/%.c
 	$(CC) $(CFLAGS) $(INCLUDES) -o $(BUILD_DIR)/$(*).o $(ROOT_DIR)/drivers/Src/$(*).c

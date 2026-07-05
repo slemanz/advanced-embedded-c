@@ -39,5 +39,5 @@ This can help prevent unauthorized access or tampering with the device.
 --- 
 
 - [Linker Script](linkerscript/)
-- [Bootloader v1](bootloader_v1/)
+- [Bootloader v1](bootloader-v1/)
 - [Multi Slot Bootloader System](multi-slot/)
