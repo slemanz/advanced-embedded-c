@@ -4,6 +4,15 @@ A design pattern is a reusable solution to a problem that appears frequently in 
 
 In embedded C, design patterns are especially valuable because they bring structure and predictability to systems that grow in complexity over time. They also improve communication: when you say "I used the Strategy pattern here", another programmer already understands the intent without reading every line of code.
 
+## How this section relates to Optimised Patterns
+
+This section and [Optimised Patterns](../OPTIMISED_PATTERNS/) overlap on purpose.
+Here each pattern appears in its canonical form: the structure, the intent, and a
+clean implementation in C. The optimised section revisits several of the same
+patterns with embedded constraints in mind, such as memory cost and deterministic
+behavior. Start here to understand a pattern, then check the optimised version
+before applying it on a real target.
+
 ## Anatomy of a Pattern
 
 Every pattern is documented with four elements:
