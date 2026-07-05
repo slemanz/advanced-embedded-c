@@ -1,8 +1,8 @@
-# Optimised Design Patterns
+# Optimized Design Patterns
 
 This section revisits design patterns under embedded constraints: memory cost,
 determinism, and direct interaction with hardware. Some patterns also appear in
-[Design Patterns](../DESIGN_PATTERNS/), which presents the canonical form and
+[Design Patterns](../design-patterns/), which presents the canonical form and
 intent; the versions here focus on what changes when resources are tight.
 
 Design patterns are **reusable solutions** to common problems encountered
