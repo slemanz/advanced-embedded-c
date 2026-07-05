@@ -193,7 +193,7 @@ MCUs (e.g., ARM Cortex-M) to convert values before transmission.
 ### List of Data Structures
 
 - [Memory Allocations](memory)
-- [Bit-Packed](bit_packed/)
+- [Bit-Packed](bit-packed/)
 - [Linked Lists](linked/)
 - [Memory Pools](pools/)
 - [Queues](queues/)
