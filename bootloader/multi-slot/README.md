@@ -130,3 +130,52 @@ which is why the app must be built last.
 program folder together with `bsp/`, `drivers/` and `linkers/`, with the
 include paths already set, so IntelliSense resolves everything while you work
 on one program at a time.
+
+## Build, flash and test
+
+Requirements: `arm-none-eabi-gcc`, `python3` and OpenOCD. The `load` targets
+assume a J-Link probe over SWD; with an ST-Link, change the interface file in
+the Makefile.
+
+Build the three programs in order, the app always last:
+
+```
+cd bootloader   && make      # produces bootloader.bin, already padded
+cd ../factory-app && make    # produces factory.bin, already padded
+cd ../app       && make      # embeds both and produces flash.elf / flash.bin
+```
+
+Flashing the merged image programs everything in one step:
+
+```
+cd app && make load
+```
+
+Open a serial terminal on UART2 at 115200 and reset the board. You should see
+`Init bootloader...`, the LED blinking fast, and after about 5 seconds
+`Jump to app!` followed by `Init app...`. To reach the menu instead, hold the
+button during that window: press `1` to boot the application or `F` to boot
+the factory app.
+
+### Seeing the fallback work
+
+The point of the factory app is surviving a broken or missing application, so
+the test is to boot without one:
+
+1. Mass erase the chip:
+
+   ```
+   openocd -f interface/jlink.cfg -c "transport select swd" \
+       -f target/stm32f4x.cfg -c init -c "reset halt" \
+       -c "stm32f2x mass_erase 0" -c shutdown
+   ```
+
+2. Flash only the bootloader and the factory app (`make load` inside
+   `bootloader/`, then inside `factory-app/`). Each `load` writes just the
+   sectors its image touches, so the application slot stays erased.
+3. Reset with the terminal open. The bootloader waits its window, tries the
+   application slot and prints `Ops! No application found at location...`.
+   The LED slows down to 500 ms and the bootloader keeps running.
+4. Press the button to open the menu and hit `F`: the factory app starts
+   (`Init Factory...`) and echoes what you type back to the terminal.
+5. Restore the full system with `make load` inside `app/`.
