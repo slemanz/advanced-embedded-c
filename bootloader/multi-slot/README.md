@@ -99,3 +99,34 @@ starts at `0x08000000` and reserves the first two regions:
 
 The result is a single `flash.bin` that contains bootloader, factory app and
 application at their final addresses.
+
+## Project structure
+
+```
+multi-slot/
+|-- bootloader/    program in sector 0: boot window, menu, slot check, jump
+|-- factory-app/   recovery application, lives in sector 1
+|-- app/           main application, sector 2, also builds the merged image
+|-- drivers/       register-level peripheral drivers (GPIO, UART, SysTick, ...)
+|-- bsp/           board support on top of the drivers: led, button, simple-timer
+|-- linkers/       the three .ld scripts plus shared startup.c and syscalls.c
+`-- workspaces/    one VS Code workspace per program
+```
+
+The three programs (`bootloader/`, `factory-app/`, `app/`) have the same
+shape: an `Inc/` and `Src/` pair with the code that is unique to them, and a
+Makefile that compiles the shared folders directly from source. There is no
+prebuilt library: each program compiles `drivers/`, `bsp/`, `linkers/startup.c`
+and `linkers/syscalls.c` on its own, against its own linker script. That keeps
+the three builds independent while guaranteeing they all use the same driver
+code.
+
+The Makefiles of the bootloader and the factory app call their pad script as
+the last build step, so `bootloader.bin` and `factory.bin` always come out
+slot-sized. The app Makefile consumes those two binaries through `merged.S`,
+which is why the app must be built last.
+
+`workspaces/` holds one `.code-workspace` per program. Each one opens the
+program folder together with `bsp/`, `drivers/` and `linkers/`, with the
+include paths already set, so IntelliSense resolves everything while you work
+on one program at a time.
