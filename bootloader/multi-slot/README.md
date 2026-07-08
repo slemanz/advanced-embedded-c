@@ -26,6 +26,64 @@ each binary, and in `bootloader/Inc/config.h` (`SECTOR1_BASE_ADDRESS`,
 `SECTOR2_BASE_ADDRESS`), which tells the bootloader where to jump. If one side
 changes, the other must follow.
 
+## Boot flow
+
+After reset the bootloader configures UART2, SysTick and the board LED, then
+opens a window of about 5 seconds before booting the default application. The
+LED blinks fast (100 ms) while the window is open.
+
+```
+reset
+  |
+  v
+bootloader @ 0x08000000
+  |
+  |-- button pressed during the window?
+  |     yes -> menu over UART2:
+  |             '1' -> jump to application (0x08008000)
+  |             'F' -> jump to factory app (0x08004000)
+  |
+  '-- no input after ~4.7 s
+        -> jump to application (0x08008000)
+             |
+             '-- slot invalid? print error and stay in the
+                 bootloader, LED slows down to 500 ms,
+                 the button menu remains available
+```
+
+The factory app is not entered automatically: it exists as a recovery path you
+select by hand. If the application slot fails validation, the bootloader keeps
+running instead of guessing, and you use the menu to boot the factory app or
+reflash the board.
+
+### How a slot is considered valid
+
+Before jumping, `jmp_to_app()` in `bootloader/Src/config.c` reads the first
+word of the target slot, which by Cortex-M convention holds the initial stack
+pointer. Two checks are available, selected by a `#define` in
+`bootloader/Inc/config.h`:
+
+- `MEM_CHECKK_V2` (the active one): the slot is valid if the word is not
+  `0xFFFFFFFF`, since erased flash reads as all ones.
+- `MEM_CHECKK_V1`: masks the word and accepts it only if it looks like an
+  address inside SRAM, a stricter test of the same idea.
+
+### The jump itself
+
+A valid slot starts with two words: the initial stack pointer and the address
+of the reset handler. The bootloader reads the second word, casts it to a
+function pointer and calls it, which is all a Cortex-M needs to start another
+program. In the timeout path interrupts are disabled before the jump. One
+known gap, marked with a TODO in `config.c`: the MSP is not reloaded from the
+slot's first word, so the application inherits the stack position left by the
+bootloader. It works because both use the same SRAM and the apps barely touch
+the stack before `main`, but a strict bootloader would set the MSP first.
+
+On the other side, the first thing each application does in `main()` is
+relocate the vector table: `SCB->VTOR` gets the slot base (`0x4000` offset for
+the factory app, `0x8000` for the application). Without this, interrupts would
+still be served by the bootloader's table at `0x08000000`.
+
 ## How the merged image works
 
 The application is the piece that glues everything together. Its linker script
