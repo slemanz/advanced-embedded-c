@@ -26,10 +26,18 @@ Understanding the *consequences* is just as important as understanding the solut
 
 ## Patterns
 
-1. **[ADT](adt/)** - Abstract Data Type
-2. **[Bit Fields](bit-fields/)**
-3. **[State](state/)**
-4. **[Hardware Proxy](hardware-proxy/)**
-5. **[Strategy](strategy/)**
-6. **[Hardware Adapter](hardware-adapter/)**
-7. **[Client-Server](client-server/)**
+1. **[ADT](adt/)**: an abstract data type behind an opaque pointer, so callers
+   see operations but never the struct internals.
+2. **[Bit Fields](bit-fields/)**: packing flags into exact bits, and why the
+   implementation-defined layout keeps this away from hardware registers.
+3. **[State](state/)**: the same state machine three times (conditional,
+   table-based, state pattern), with a comparison of the trade-offs.
+4. **[Hardware Proxy](hardware-proxy/)**: a struct that encapsulates all access
+   to a device (a motor here), hiding its physical interface.
+5. **[Strategy](strategy/)**: a family of interchangeable algorithms selected at
+   runtime through function pointers.
+6. **[Hardware Adapter](hardware-adapter/)**: converting between the interface
+   the application expects and the one the hardware provides, with two sensor
+   front ends behind one oximetry interface.
+7. **[Client-Server](client-server/)**: modules decoupled into clients and a
+   server, demonstrated with an ECG processing chain.
