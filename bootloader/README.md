@@ -38,6 +38,23 @@ This can help prevent unauthorized access or tampering with the device.
 
 --- 
 
-- [Linker Script](linkerscript/)
-- [Bootloader v1](bootloader-v1/)
-- [Multi Slot Bootloader System](multi-slot/)
+## Modules
+
+The three main modules build on each other in order: `linkerscript` teaches
+the foundation (controlling where code and data land in flash),
+`bootloader-v1` is the first working version (one bootloader handing the CPU
+to one application), and `multi-slot` is the complete system (a boot menu, a
+factory recovery image, and three programs in one flash map). Read them in
+that order.
+
+- [Linker Script](linkerscript/): pinning sections at fixed addresses and
+  carving custom memory regions, the technique everything else here depends
+  on.
+- [Bootloader v1](bootloader-v1/): the minimum working bootloader, a timeout
+  and a jump into the application slot.
+- [Multi Slot Bootloader System](multi-slot/): three programs in one image,
+  with a boot menu and a factory app to fall back to.
+- [Shared](shared/): the bootloader exporting its drivers to the application
+  through a function-pointer table at a fixed address, the ROM API trick.
+- [Template](template/): the preconfigured F411 skeleton the other modules
+  grew from.
