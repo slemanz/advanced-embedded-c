@@ -41,3 +41,6 @@ Understanding the *consequences* is just as important as understanding the solut
    front ends behind one oximetry interface.
 7. **[Client-Server](client-server/)**: modules decoupled into clients and a
    server, demonstrated with an ECG processing chain.
+8. **[Publisher-Subscriber](publisher-subscriber/)**: consumers registering
+   callbacks with a producer that never learns who they are, also known as
+   observer.
