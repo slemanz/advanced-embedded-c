@@ -1,150 +1,93 @@
 # State Pattern
 
-- The state design pattern enables an object to change its
-behavior based on its internal state.
+An object whose behavior depends on a mode, and a set of transitions between
+those modes, is a state machine. The state pattern makes each state a piece of
+code and the current state a pointer, so an event is a call through that pointer
+and a transition is just repointing it. No `switch` on a mode variable anywhere.
 
-- Instead of using large conditional statements (if-else or
-switch-case) to handle different states, the State Pattern
-encapsulates state-specific logic into separate functions
-or structures.
+## The idea
 
-- This approach promotes modularity, reduces complexity,
-and improves code maintainability.
+This is the pattern at its smallest: a state is a bare function pointer, and one
+global holds the current one. The classic traffic light shows it in three lines
+of infrastructure.
 
-### Components
+```c
+typedef void (*StateHandler)(void);
 
-- **State (Interface):** declares common operations (e,g
-handleEvent(), enter() and exit()) that each state must implement.
-This abstraction allows the context to interact with the state
-without knowing its concrete type.
+StateHandler currentState = redStateHandler;   /* the whole "context" */
 
-- **Concrete States (IdleState, TransmitState, ErrorState):** these
-modules implement the StateInterface with behavior specific to each
-state. For example, in an embedded communication module:
-    - IdleState: Might simply wait for an event.
-    - TransmitState: initiates data transmission and manages the
-    transmission process.
-    - ErrorState: handles error conditions and performs revocery.
-
-- **Context:** Represents the object whose behavior changes with its
-state. It maintains a reference to the current state and delegates
-requests to it. The `setState()` method changes the current state, and
-`request()` is used to handle events by forwarding them to the current
-state.
-
-### Key Characteristics
-
-- **Encapsulation of State Logic:** Each state is represented by a function
-or structure, encapsulating all behavior associated with that state.
-
-- **Dynamic Behavior:** The system can dynamically switch between states
-at runtime.
-
-- **Separation of Concerns:** The main object (context) delegates
-state-specific behavior to state handlers, reducing complexity in the main logic.
-
-- **Open/Closed Principle:** New states can be added without modifying existing
-code, adhering to the Open/Closed Principle of SOLID design.
-
-### Example
-
-Consider a traffic light system with three states: Red, Yellow, and Green. 
-The behavior of the traffic light depends on its current state.
-
-**Step 1: Define the State Interface**
-
-```C
-typedef void (*StateHandler) (void);
-
-// Function prototypes for state handlers
-void redStateHandler (void);
-void yellowStateHandler(void);
-void greenStateHandler (void);
-```
-
-**Step 2: Implement Concrete State**
-
-```C
-#include <stdio.h>
-
-void redStateHandler (void)
+void runStateMachine(void)
 {
-    printf("Red Light: Stop vehicles.\n");
-    // Transition to Green after a delay
-    setNextState(greenStateHandler);
+    if(currentState != NULL)
+        currentState();          /* an event is a call through the pointer */
 }
 
-void yellowStateHandler(void)
-{
-    printf("Yellow Light: Prepare to stop.\n");
-    // Transition to Red after a delay
-    setNextState(redStateHandler);
-}
-
-void greenStateHandler (void)
-{
-    printf("Green Light: Allow vehicles to proceed.\n");
-    // Transition to Yellow after a delay
-    setNextState(yellowStateHandler);
-}
-```
-
-**Step 3: Define the Context**
-
-```C
-StateHandler currentState = redStateHandler; // Initial state
 void setNextState(StateHandler nextState)
 {
-    currentState = nextState;
-}
-
-void runStateMachine (void)
-{
-    if (currentState != NULL) 
-    {
-        currentState(); // Execute the current state's behavior
-    }
+    currentState = nextState;    /* a transition is a reassignment */
 }
 ```
 
-**Step 4: main function**
+Each state does its work and names its successor. There is no table and no
+branch on "which state am I": the knowledge of what comes next lives inside each
+state.
 
-```C
-int main(void)
+```c
+void redStateHandler(void)
 {
-    while (1)
-    {
-        runStateMachine();
-        delay(1000);
-    }
-    return 0;
+    printf("Red Light: stop vehicle\n");
+    setNextState(greenStateHandler);   /* red -> green */
 }
 ```
 
-### Advantages
+The demo ticks `runStateMachine` every four seconds, so it cycles red, green,
+yellow on the terminal, each state handing off to the next.
 
-- **Improved Code Organization and Maintainability:** Each state
-encapsulates its behavior, making the system easier to understand and modify.
+## Minimal, richer, and the design-patterns version
 
-- **Scalability and Extensibility:** Adding new states or modifying transitions
-does not require rewriting large portions of the code.
+Three views of this idea are worth reading together. This module is the minimal
+one: a state is a single function, and the context is one global pointer.
+[state-example](../state-example/) is the same idea with a lifecycle: a state is
+a struct of `enter`, `execute`, and `exit`, held in a small state-machine
+context, so entering and leaving a state can run their own code, which is what
+you want for a real acquisition or protocol machine. Start here for the shape,
+read the example for the version that carries weight.
 
-- **Clear Separation of Concerns:** State-specific logic is separated from
-the context, reducing complexity in the main application.
+[design-patterns/state](../../design-patterns/state/) is the other axis. It puts
+the same stopwatch behind three different techniques, conditional, table-based,
+and this state pattern, and gives the rule for choosing between them. Both
+modules here are the state-pattern technique specifically; if you are deciding
+whether the state pattern is even the right tool rather than a `switch` or a
+table, that comparison is the place to start. The short version of its rule:
+reach for the state pattern only when states keep being added.
 
-- **Testability:** Each state can be individually tested, and the transitions
-can be simulated in a controlled environment.
+## When to use it (and when not to)
 
-### Applications
+The state pattern fits when states have genuinely different behavior and the
+machine keeps growing, because a new state is a new function that does not touch
+the existing ones, and there is no central `switch` to keep in sync. It is a good
+fit for protocol and mode machines that gain states over a project's life.
 
-| Application Area | Example |
-| --- | --- |
-| Communication Protocols |  Managing states of a UART or CAN interface: idle, transmitting, error, and reconnecting. |
-| Power Management | Transitioning between active, sleep, and deep-sleep modes based on battery level or workload. |
-| Motor Control | Switching control algorithms (e.g., startup, running, braking, fault detection) for a motor driver. |
-| User Interface (UI) Handling |  Managing screen states in embedded displays: welcome screen, menu navigation, error display, etc. |
-| Sensor Data Processing |  States representing calibration, normal operation, and error handling for sensor arrays. |
+The costs are the usual ones for indirection, plus some specific to this minimal
+form. Every tick is an indirect call the compiler cannot inline. More
+importantly, the machine here is one file-scope `currentState`, so there is
+exactly one state machine in the whole program; a second instance would need its
+own context rather than a global, which is what [state-example](../state-example/)
+moves toward with its `state_machine_t`. There is also no place to run
+entry/exit code, so anything that must happen on entering or leaving a state has
+to be bolted onto the handlers by hand, which the example solves with its
+`enter`/`exit` slots. And for a machine of two or three states that rarely
+changes, a plain `switch` reads top to bottom and costs nothing; the pattern
+earns its keep from the point where states multiply.
 
-## Code
+## Build and run
 
-**[main.c](app/Src/main.c)**
+STM32F411 (black pill). `make` builds `app/Build/final.elf` and
+`app/Build/flash.bin`; `make load` flashes it through OpenOCD with a J-Link
+over SWD. The demo cycles the three traffic-light states every four seconds,
+printing each on UART2 at 115200.
+
+## Files
+
+- [app/Src/main.c](app/Src/main.c): the `StateHandler` type, the global current
+  state, the runner, and the three state handlers with their transitions.
