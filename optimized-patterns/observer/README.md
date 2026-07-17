@@ -1,54 +1,105 @@
 # Observer Pattern
 
-- The observer design pattern, also known as the **Publisher-Subscriber Patter**,
-is a behavioral pattern that establishes a one-to-many dependency
-between objects.
+A sensor changes and several modules need to react: an LED, a UART logger. The
+observer pattern sets up a one-to-many link where the subject holds a list of
+observers and, when its state changes, calls each one. The subject never learns
+what the observers do, only that it has a list to notify.
 
-- When one object (the subject or publisher) changes its state,
-all its dependents (the observers or subscribers) are notified
-and updated automatically.
+## The idea
 
-### Components
+An observer is a struct with an `update` method that takes `self`, so an
+observer can carry its own state:
 
-- **Observer (Interface):** declares the update (data) method that all
-observers must implement. This method is called by the subject when its 
-state changes.
+```c
+typedef struct observer{
+    void (*update)(struct observer *self, int data);
+}observer_t;
+```
 
-- **Concrete Observers:** these modules implement the observer interface.
-Each concrete observer defines its own version of update (data) to react
-to notifications from the subject.
+The subject owns a fixed array of observer pointers plus its own state, and the
+registration functions act on that array:
 
-- **Subject:** maintains a list (or another collection) of observers and
-provides methods to add or remove them. When the subject's state changes,
-it calls notify (data), which in turn calls update (data) on each registered
-observer.
+```c
+typedef struct subject{
+    observer_t *observer_list[MAX_OBSERVERS];
+    int observer_count;
+    int sensor_data;
+}subject_t;
 
-### Key Characteristics
+void subject_attach(subject_t *self, observer_t *obs);   /* append */
+void subject_detach(subject_t *self, observer_t *obs);   /* find and shift down */
+```
 
-Direct event handling leads to:
+Notifying is a loop over whoever is attached, calling each observer through its
+pointer:
 
-- **Tight coupling:** hardcoded dependencies beetween components.
-- **Code Duplication:** repeated event-checking logic.
-- **Maintenance challenges:** difficulty adding/removing event handlers.
-- **Resource contention:** unmanaged ISR/thread interactions.
+```c
+void subject_notify(subject_t *self)
+{
+    for(uint8_t i = 0; i < self->observer_count; i++)
+        if(self->observer_list[i] && self->observer_list[i]->update)
+            self->observer_list[i]->update(self->observer_list[i], self->sensor_data);
+}
+```
 
-The observer pattern solves these by:
+The demo makes a temperature-sensor subject, attaches a UART observer and an LED
+observer, and every five seconds reads the ADC and calls `subject_notify`. Both
+observers get the new value; the subject never mentions either by name.
 
-- **Centralizing** event notification logic.
-- Allowing **dynamic** subscription to events.
-- **Standardizing** event propagation.
+## Same pattern, other implementation
 
-## Code
+[publisher-subscriber](../../design-patterns/publisher-subscriber/) is this same
+pattern built the other way, and the pair is the interesting comparison. Here
+registration lives on the subject: `subject_attach` and `subject_detach` are one
+copy of the logic, and an observer is a struct with an `update(self)` method.
+There registration is a callback plus a `void*` context, and each client
+implements its own subscribe function that writes into the publisher's array,
+which means the subscribe logic is duplicated per client. This form keeps one
+copy of the registration and pays for it by requiring each observer to be a
+struct of a fixed shape; the callback form is more flexible about what a
+subscriber is but repeats the wiring. Same behavior, opposite trade of
+duplication against uniformity.
 
-**[main.c](app/Src/main.c)**
+## When to use it (and when not to)
 
-Inc:
+It fits when the set of reactors to an event is dynamic or simply unknown to the
+source: a sensor feeding modules that come and go, a state change several UIs
+must reflect, a driver reporting completion to whoever registered. The subject
+stays closed to change, and a new observer is a new module plus one `attach`.
 
-- **[subject.h](app/Inc/subject.h)**
-- **[observer.h](app/Inc/observer.h)**
+The costs on a microcontroller are concrete. The `observer_list` is a fixed
+array of `MAX_OBSERVERS` pointers sitting in the subject's RAM whether or not it
+is full, and `subject_attach` silently drops any observer past that ceiling, so
+the limit is real and unreported. Every notify is a synchronous loop of indirect
+calls that cannot be inlined, so publishing costs the sum of every observer's
+`update`, charged to whoever called `subject_notify`. That last point is sharp
+if `subject_notify` runs in an ISR: every observer's work then runs in interrupt
+context, and this demo's UART observer calls `printf`, a blocking UART write, so
+notifying from an ISR would stall the interrupt for the whole transmission. The
+subject also holds raw pointers, so an observer that goes out of scope without
+detaching leaves a dangling pointer `notify` will happily call; and attaching the
+same observer twice, or attaching or detaching from inside an `update` while the
+loop is running, are all unguarded here. For one source and one reactor that
+both live forever, a direct call is clearer. The pattern buys decoupling, and
+that is only worth its RAM and indirection when the set of observers actually
+varies.
 
-Src:
+## Build and run
 
-- **[subject.c](app/Src/subject.c)**
-- **[led_observer.c](app/Src/led_observer.c)**
-- **[uart_observer.c](app/Src/uart_observer.c)**
+STM32F411 (black pill). `make` builds `app/Build/final.elf` and
+`app/Build/flash.bin`; `make load` flashes it through OpenOCD with a J-Link
+over SWD. The demo reads the ADC every five seconds and notifies both observers,
+printing the UART observer's line on UART2 at 115200 while the LED observer
+reacts on the board.
+
+## Files
+
+- [app/Inc/observer.h](app/Inc/observer.h): the observer interface, an `update`
+  method taking `self`.
+- [app/Inc/subject.h](app/Inc/subject.h) and
+  [app/Src/subject.c](app/Src/subject.c): the subject with its observer array,
+  attach, detach and notify.
+- [app/Src/uart_observer.c](app/Src/uart_observer.c) and
+  [app/Src/led_observer.c](app/Src/led_observer.c): the two concrete observers.
+- [app/Src/main.c](app/Src/main.c): the subject, the attaches, and the notify
+  loop.
