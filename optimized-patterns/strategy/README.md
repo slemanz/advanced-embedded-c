@@ -1,76 +1,114 @@
 # Strategy Pattern
 
-- The Strategy design pattern defines a family of interchangeable
-algorithms and encapsulates each one, enabling runtime selection
-based on system requirements.
+The same ADC reading can be processed several ways: pass it through untouched,
+smooth it with a moving average, filter it some other way. Strategy pulls that
+choice of algorithm out of the reader and into an interchangeable object, so the
+reader calls "filter this" without knowing which filter runs.
 
-- In embedded systems, this pattern is crucial for manging varying
-processing requirements, hardware constraints, and operational modes
-while maintaining code clarity and flexibility.
+## The idea
 
-### Key Goals
+The strategy interface here is not a bare function pointer but a struct with a
+method, and that difference is the whole point of this version: passing the
+strategy to its own method gives the algorithm a `this`, so it can carry state.
 
-- **Decouple algorithms** from their usage context
-- Enable runtime **algorithm swapping**
-- **Simplify maintenance** of multiple algorithm variants
+```c
+struct FilterStrategy_t{
+    uint32_t (*filter)(FilterStrategy_t *strategy, uint32_t rawValue);
+};
+```
 
-### Components
+A concrete strategy embeds that base as its first member and adds whatever state
+it needs. The moving-average filter carries its own ring buffer:
 
-1. Strategy Interface: declares a common interface for all supported
-algorithms. Defines the operation that each concrete strategy must
-implement.
+```c
+typedef struct {
+    FilterStrategy_t base;   /* must be first, so a pointer to this is a base pointer */
+    uint32_t samples[4];
+    uint8_t index;
+    uint8_t count;
+} MovingAvarageFilter_t;
+```
 
-2. Context: maintains a reference to a strategy object. Delegates the
-execution of an algorithm to the currently assigned strategy. Provides
-a setter to change the strategy at runtime.
+Because `base` is first, a `MovingAvarageFilter_t*` is a valid
+`FilterStrategy_t*` (C inheritance by layout). The method casts it back to reach
+its state:
 
-3. Concrete Strategies: implement the strategy interface with specific
-algorithms. These modules encapsulates different behaviors or algorithms.
+```c
+uint32_t movingAvarageFilter(FilterStrategy_t *strategy, uint32_t rawValue)
+{
+    MovingAvarageFilter_t *avg = (MovingAvarageFilter_t*)strategy;
+    avg->samples[avg->index] = rawValue;      /* uses this strategy's own buffer */
+    avg->index = (avg->index + 1) % 4;
+    ...
+}
+```
 
-### Importance
+The context is the `ADCReader_t`, which holds the ADC source and the current
+filter and delegates without knowing either concretely:
 
-Embedded Systems frequenly require adaptive behavior:
+```c
+uint32_t ADCReader_readFiltered(ADCReader_t *reader)
+{
+    uint32_t raw = reader->adc->read();
+    return reader->filter->filter(reader->filter, raw);
+}
+```
 
-- Different sensor filtering algorithms (Kalman vs. Moving avarage)
-- Multiple motor control strategies (PID vs. Fuzzy Logic)
-- Various power management approaches (Dynamic vs. static scaling)
+The demo wires a moving-average filter into a reader and prints ten filtered
+values. A `noFilter` pass-through strategy is also provided, and swapping to it
+is just pointing the reader at a different strategy.
 
-Direct implementation leads:
+## Same pattern in design-patterns
 
-- Complex conditional Logic (nested switch/if statements)
-- Code bloat (multiple algorithm versions in firmware)
-- Maintenance challenges (difficulty adding/removing strategies)
+[design-patterns/strategy](../../design-patterns/strategy/) is the same pattern
+in its minimal, stateless form, and the pair shows the two shapes a strategy
+takes in C. There the interface is a bare `typedef void (*gpioStrategy)(int)`: a
+plain function pointer, concrete strategies that are standalone functions with no
+state, and the choice swapped at runtime on an opaque context. That is all you
+need when the algorithm is a pure function.
 
-The **Strategy Pattern** solves these by:
+This version is the stateful shape. A moving average has to remember its last
+samples, and a bare function pointer has nowhere to keep them. Making the
+strategy a struct whose method takes `self` as the first argument is what lets it
+carry state per instance, and embedding the base as the first member is the C
+trick that makes the cast safe. Reach for the function-pointer form when the
+strategy is stateless; reach for this struct-plus-self form the moment the
+algorithm needs to remember anything between calls.
 
-- Isolating algorithm implementations
-- Providing clear interface contracts
-- Enabling how-swapping of strategies
+## When to use it (and when not to)
 
-### Implementation
+Strategy fits when the choice of algorithm is genuinely dynamic: a filter picked
+by operating mode, a control law selected by measurement, a variant chosen by
+which hardware was detected. Each algorithm stays a standalone unit that is
+testable on its own, and adding one does not touch the reader or the other
+strategies.
 
-| Component         | Implementation                | Responsability                |
-|---|---|---|
-| Strategy          | Struct with function pointers | Defines algorithm interface   |
-| Concrete Strategy | Struct                        | Implements specific algorithm |
-| Context           | Main application logic        | Maintains and uses strategy reference |
+The costs are the vtable's. The call through `filter->filter` is indirect and
+cannot be inlined, so a strategy in the innermost sample loop pays a call per
+sample where a direct function or a compile-time choice would not. Function
+pointers also defeat static analysis of the call graph and make stack bounding
+harder, which matters in safety-critical code. And the flexibility is often
+unused: if the filter is fixed at build time, a direct call to
+`movingAvarageFilter` says the same thing with no indirection. Note the demo
+sets one strategy and never swaps it, which is a fair sign that here the runtime
+selection is latent rather than exercised. Use the pattern when the switching is
+real; if the algorithm never changes, this is indirection with no payoff.
 
-- **Step 1:** define strategy interface
-- **Step 2:** implement concrete strategies
-- **Step 3:** configure context
+## Build and run
 
-## Code
+STM32F411 (black pill). `make` builds `app/Build/final.elf` and
+`app/Build/flash.bin`; `make load` flashes it through OpenOCD with a J-Link
+over SWD. The demo reads the ADC ten times through the moving-average filter and
+prints each filtered value on UART2 at 115200.
 
-**[main.c](app/Src/main.c)**
+## Files
 
-Inc:
-
-- **[filter_strategy.h](app/Inc/filter_strategy.h)**
-- **[adc_interface.h](app/Inc/adc_interface.h)**
-- **[adc_reader.h](app/Inc/adc_reader.h)**
-
-Src:
-
-- **[filter_strategy.c](app/Src/filter_strategy.c)**
-- **[adc_interface.c](app/Src/adc_interface.c)**
-- **[adc_reader.c](app/Src/adc_reader.c)**
+- [app/Inc/filter_strategy.h](app/Inc/filter_strategy.h): the strategy interface
+  struct and the moving-average concrete type with its state.
+- [app/Src/filter_strategy.c](app/Src/filter_strategy.c): the `noFilter` and
+  `movingAvarageFilter` implementations.
+- [app/Inc/adc_reader.h](app/Inc/adc_reader.h) and
+  [app/Src/adc_reader.c](app/Src/adc_reader.c): the context holding a source and
+  a strategy, delegating through the interface.
+- [app/Src/main.c](app/Src/main.c): wiring the filter into the reader and reading
+  through it.
