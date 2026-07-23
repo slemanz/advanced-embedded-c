@@ -1,134 +1,145 @@
 # Queues
 
-These structures enable efficient data storage, retrieval, and processing in
-constrained environments such as microcontrollers.
+A queue is FIFO: things go in at one end and come out the other, in order. On a
+microcontroller its most important job is decoupling two pieces of code that run
+at different rates, and the classic case is an interrupt that must finish fast
+handing work to a main loop that can take its time. This module builds the queue
+three ways and, more usefully, shows what makes the ISR-to-main-loop version
+actually safe.
 
-### Linear Queue
+## The idea
 
-- A linear queue is a First-In-First-Out (FIFO) data structure in which elements
-are inserted at one end (rear) and removed from the other (front).
+The naive version is a linear queue: a fixed array with a `front` and a `rear`
+index that only ever move forward. `linear_queue.c` is that, buffering UART
+bytes from the interrupt.
 
-- Once an element is removed, its position is not reused, leading to wasted
-memory over time.
+```c
+uart_rx_queue.buffer[uart_rx_queue.rear] = data;
+uart_rx_queue.rear++;      /* never wraps */
+uart_rx_queue.length++;
+```
 
-### Applications in Embedded Systems
+It works until `rear` reaches the end of the array. From that point `enqueue`
+refuses forever, even if every byte has been consumed and the buffer is empty,
+because the space behind `front` is never reused. That is not a small
+inefficiency, it is the queue dying after a fixed number of bytes.
 
-- UART Receive Buffers - Storing received data before processing.
-- Task Scheduling in Embedded RTOS - Managing task execution in FIFO order.
-- Data Logging Buffers - Storing sensor readings before transmission.
+The circular queue fixes it with one operator. The indices wrap with modulo, so
+the array is reused end to end and the queue runs forever.
 
-### Performance Limitations
+```c
+/* enqueue */
+uart_rx_queue.buffer[uart_rx_queue.tail] = data;
+uart_rx_queue.tail = (uart_rx_queue.tail + 1) % QUEUE_SIZE;
 
-- Memory Inefficiency: Once front moves forward, unused memory remains inaccessible.
-- Fixed Capacity: Linear queues cannot dynamically grow without reallocating memory.
+/* dequeue */
+*data = uart_rx_queue.buffer[uart_rx_queue.head];
+uart_rx_queue.head = (uart_rx_queue.head + 1) % QUEUE_SIZE;
+```
 
-### Circular Queues
+Empty is `head == tail`. Full is `(tail + 1) % SIZE == head`, which is why one
+slot is deliberately left unused: without it, full and empty would look
+identical. Capacity is `SIZE - 1`, and that wasted slot is the price of not
+needing a counter, which turns out to matter a lot.
 
-- A circular queue is an optimized version of the linear queue where the rear
-wraps around when it reaches the end, allowing memory reuse.
+`circular_queue.c` runs three of these at once: a UART receive queue filled by
+the interrupt, a command queue the main loop fills from decoded bytes, and an
+ADC sample queue. `priority_queue.c` is a different structure with a queue's
+interface: a fixed array of tasks kept sorted by priority on insert, so the
+highest-priority task always comes out first, which is a miniature of how an
+RTOS picks the next task to run.
 
-- The elements are arranged as if they were placed on a circle, rather than a
-straight line
+## The ring buffer between an ISR and the main loop
 
-- This circular arrangement allows you to reuse the space at the beginning of
-the allocated memory once the rear reaches the end.
+This is the pattern worth internalizing. The UART interrupt enqueues, the main
+loop dequeues, and there is no mutex, no disabled interrupt, no critical
+section anywhere. It is still correct, and the reasons are specific.
 
-**Why Circular Queues are Ideal for Embedded Systems?**
+**Each side owns exactly one index.** The producer (the ISR) writes only `tail`
+and reads `head`. The consumer (the main loop) writes only `head` and reads
+`tail`. No variable is written by both. That single property is what removes the
+need for a lock.
 
-1. **Memory Efficiency:**
-    - Fixed Size: You preallocate a fixed-size buffer, eliminating the overhead
-    of dynamic memory allocation (which can be slow and problematic in embedded
-    environments).
-    - Reusing Memory: The circular nature allows you to reuse the allocated
-    buffer, avoiding memory fragmentation and wasteful memory usage.
+**Index updates are atomic.** The indices are `uint8_t` on a 32-bit core, so
+each write is one store instruction that cannot be interrupted halfway. The
+reader either sees the old value or the new one, never garbage.
 
-2. **Real-Time Capabilities:**
-    - Deterministic Performance: The consistent time taken to enqueue and
-    dequeue elements makes circular queues highly predictable, which is vital
-    for real-time systems.
-    - Avoiding Blocking: They prevent unbounded growth, which can lead to
-    unpredictable delays or memory exhaustion in resource-constrained
-    environments.
+**The indices are `volatile`.** The compiler cannot cache `head` or `tail` in a
+register across the loop, so the main loop actually re-reads what the interrupt
+wrote instead of spinning on a stale copy.
 
-3. **Synchronization:**
-    - Simple to Manage: The straightforward implementation makes them easier to
-    manage with concurrency primitives like semaphores or mutexes.
-    - Inter-Process Communication (IPC): Circular queues can facilitate data
-    exchange between different tasks or modules in an embedded system.
+**Order of operations.** Enqueue writes the data into the buffer *before*
+advancing `tail`. If it advanced `tail` first, the consumer could read a slot
+the producer had not filled yet. Same on the other side: read the value, then
+advance `head`.
 
-### Key Properties
+Now the ways to break it, because they are how this goes wrong in real code:
 
-Front and Rear Pointers: Instead of physically moving elements, we track the
-beginning and end of the queue using two pointers (or indices)
+- **A shared counter.** Add a `length` field that the producer increments and
+  the consumer decrements and the whole argument collapses, because `length++`
+  is a read, a modify, and a write. An interrupt landing between the read and
+  the write of the main loop's `length--` loses a count permanently.
+  `linear_queue.c` does exactly this, and it is the sharper reason to prefer the
+  circular form, well beyond the wasted space. Its indices are not `volatile`
+  either.
+- **More than one producer or one consumer.** The reasoning above is
+  single-producer, single-consumer only. Two ISRs enqueuing, or a main loop and
+  an ISR both dequeuing, need a real guard.
+- **An index wider than the word size**, or a non-power-of-two size handled with
+  a read-modify-write instead of a clean store, puts you back in torn-update
+  territory.
 
-- Front: Points to the location of the first element in the queue (the next to
-be dequeued).
-- Rear: Points to the next available location where a new element can be
-enqueued.
-- Modulo Arithmetic (The Circle): The magic of a circular queue comes from using
-the modulo operator (%) to wrap the indices around when they reach the end of
-the array.  If an index i has reached the last position, the next index becomes
-(i + 1) % capacity.
+And the behavior you must still design for: the queue can fill. The ISR's
+`enqueue` returns false and the byte is dropped. Silence is not an option here,
+because dropping UART bytes silently is how a protocol desynchronizes and stays
+broken; either size the buffer for the worst-case burst, or count the drops and
+surface them.
 
-- Empty and Full Conditions:
-    - Empty: The queue is empty when front equals rear.
-    - Full: A full condition requires a slightly more complex approach since
-    front and rear could potentially be equal both when the queue is empty and
-    when it is full.
+## When to use it (and when not to)
 
-### Key Operations
+A ring buffer is the default for any producer-consumer stream on an MCU: UART
+and SPI receive, ADC sampling, event and command queues, anything where an
+interrupt must hand off and get out. It is fixed size, so no allocation, no
+fragmentation, and constant-time enqueue and dequeue, which is what a real-time
+path needs.
 
-**Enqueue (Add):**
-- Check if the queue is full. If it is, the operation fails (or you could handle
-the overflow condition in an application-specific way).
-- Place the new element at the location pointed to by the rear pointer.
-- Update the rear pointer: `rear = (rear + 1) % capacity`.
+| Structure | Reuses memory | Deterministic | Good for |
+| --- | --- | --- | --- |
+| Linear queue | No, dies at the end | Yes | Little, mostly a teaching step |
+| Circular queue | Yes | Yes | Streaming, ISR to main loop |
+| Priority queue | Yes | Insert is O(n) | Ordering by urgency, not arrival |
+| Heap-backed queue | Yes | No | Variable-size items, off the MCU path |
 
-**Dequeue (Remove):**
-- Check if the queue is empty. If it is, the operation fails.
-- Read the element from the location pointed to by the front pointer.
-- Update the front pointer: `front = (front + 1) % capacity.`
+It is the wrong tool when order is not what you need. If items must come out by
+urgency rather than arrival, that is the priority queue, and its insert shifts
+elements, so it is O(n) and not free. If the items are variable-sized buffers
+rather than fixed values, hand out blocks from [pools](../pools/) and queue the
+pointers. If you were reaching for a growing queue of nodes, the honest
+comparison is in [linked](../linked/), and it usually ends here. The fixed-size
+argument itself comes from [memory](../memory/).
 
-### Circular Queues Applications
+Two things in this code, noted rather than fixed: `adc_data_queue.buffer` is
+`uint8_t[64]` while `enqueue_adc` takes a `uint32_t` and `dequeue_adc` returns
+one, so ADC samples are truncated to 8 bits on the way in. And `linear_queue.c`
+has the shared `length` counter described above, non-volatile indices, and the
+permanent stall once `rear` reaches the end.
 
-1. Data Buffering:
-    - Communication Data: Buffering data coming in and out of communication
-    interfaces (UART, SPI, I2C, Ethernet).
-    - Audio/Video Data: Buffering samples from audio and video streams, where
-    constant data flow needs efficient handling.
+## Build and run
 
-2. Task/Event Queuing:
-    - Task Scheduling: Holding task IDs or event triggers that need to be
-    processed.
-    - Interrupt Handling: Queueing the processing of interrupt events to prevent
-    prolonged interrupt service routines, which can disrupt the main flow of the
-    application.
+STM32F411 (black pill). The Makefile builds `app/Src/main.c`, which this module
+does not ship, so pick a demo and make it `main.c` first (copy or rename
+`circular_queue.c`, `linear_queue.c`, or `priority_queue.c`). Then `make` builds
+`Build/flash.elf` and `Build/flash.bin`, and `make load` flashes it through
+OpenOCD with a J-Link over SWD. On UART2 at 115200 the circular demo takes `1`,
+`2`, and `3` to turn the LED on, off, and print queued ADC values; the linear
+demo echoes each processed byte; the priority demo runs three tasks in priority
+order at startup.
 
-### Doubly Queues
+## Files
 
-- A doubly-ended queue, often called a deque (pronounced "deck"), is a versatile
-data structure that combines the characteristics of both a queue and a stack.
-
-- Unlike a traditional queue, where elements are added at the rear and removed
-from the front (FIFO), a deque allows you to add and remove elements from both
-ends.
-
-- This bidirectional nature makes deques highly flexible for various applications.
-
-### Key Features of a Deque
-
-1. **Bidirectional Operations:**
-    - Insertion: Elements can be added at either the front (head) or the rear
-    (tail) of the deque.
-    - Deletion: Elements can be removed from either the front or the rear of the
-    deque.
-
-2. Flexibility:
-    - A deque can act like a queue (FIFO), a stack (LIFO), or a combination of
-    both. This adaptability makes it suitable for various scenarios.
-
-### Implementations
-
-- [Linear Queue](app/Src/linear_queue.c)
-- [Circular Queue](app/Src/circular_queue.c)
-- [Priority Queue](app/Src/priority_queue.c)
+- [app/Src/linear_queue.c](app/Src/linear_queue.c): the non-wrapping queue, kept
+  as the illustration of why wrapping matters and why a shared counter is unsafe.
+- [app/Src/circular_queue.c](app/Src/circular_queue.c): three ring buffers, UART
+  receive filled from the ISR, commands, and ADC samples.
+- [app/Src/priority_queue.c](app/Src/priority_queue.c): a fixed task array kept
+  sorted by priority on insert, executed highest priority first.
